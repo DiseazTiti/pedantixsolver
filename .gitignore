@@ -1,0 +1,7 @@
+.venv/
+pedantixsolver
+__pycache__/
+*.o
+*.zim
+*.bin
+*.csv
