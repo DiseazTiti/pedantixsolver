@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <curl/curl.h>
 
 /* Symboles générés par ld -r -b binary à partir de wikipedia.bin */
 extern const unsigned char _binary_wikipedia_bin_start[];
@@ -19,6 +20,130 @@ static inline uint16_t read_u16(uint32_t off) {
     uint16_t v;
     memcpy(&v, g_data + off, 2);
     return v;
+}
+
+/* ---- Buffer dynamique pour curl ---- */
+
+typedef struct {
+    char  *data;
+    size_t len;
+    size_t cap;
+} Buffer;
+
+static void buf_init(Buffer *b) {
+    b->cap  = 4096;
+    b->len  = 0;
+    b->data = malloc(b->cap);
+}
+
+static void buf_free(Buffer *b) { free(b->data); }
+
+static size_t curl_write_cb(char *ptr, size_t size, size_t nmemb, void *userdata) {
+    size_t total = size * nmemb;
+    Buffer *b = userdata;
+    while (b->len + total >= b->cap) {
+        b->cap *= 2;
+        b->data = realloc(b->data, b->cap);
+    }
+    memcpy(b->data + b->len, ptr, total);
+    b->len += total;
+    b->data[b->len] = '\0';
+    return total;
+}
+
+/* ---- Extraction des longueurs depuis le HTML de Pedantix ---- */
+
+/*
+ * Le HTML contient :  <div id="article"><p><span class="w">    </span> ...
+ * Chaque <span class="w"> contient N espaces = mot de longueur N.
+ * On extrait uniquement le premier <p> du <div id="article">.
+ */
+static int extract_lengths_from_html(const char *html, uint8_t **out, int *out_len) {
+    /* Trouver <div id="article"> */
+    const char *article = strstr(html, "id=\"article\"");
+    if (!article) {
+        fprintf(stderr, "Erreur : impossible de trouver id=\"article\" dans le HTML.\n");
+        return -1;
+    }
+
+    /* Trouver le premier <p> après */
+    const char *p_start = strstr(article, "<p>");
+    if (!p_start) {
+        fprintf(stderr, "Erreur : pas de <p> trouvé dans l'article.\n");
+        return -1;
+    }
+
+    /* Trouver le </p> correspondant */
+    const char *p_end = strstr(p_start, "</p>");
+    if (!p_end) {
+        fprintf(stderr, "Erreur : pas de </p> trouvé.\n");
+        return -1;
+    }
+
+    int cap = 256;
+    int len = 0;
+    uint8_t *lengths = malloc(cap);
+
+    const char *cursor = p_start;
+    while (cursor < p_end) {
+        /* Chercher <span class="w"> */
+        const char *span = strstr(cursor, "class=\"w\">");
+        if (!span || span >= p_end) break;
+
+        const char *content = span + 10; /* après class="w"> */
+        /* Trouver le </span> fermant */
+        const char *span_end = strstr(content, "</span>");
+        if (!span_end || span_end >= p_end) break;
+
+        /* Compter les caractères (espaces insécables UTF-8 = 2 octets chacun)
+         * Le site ajoute 2 caractères de padding par mot. */
+        int wlen = (int)(span_end - content) / 2 - 2;
+        if (wlen > 0 && wlen <= 255) {
+            if (len >= cap) {
+                cap *= 2;
+                lengths = realloc(lengths, cap);
+            }
+            lengths[len++] = (uint8_t)wlen;
+        }
+
+        cursor = span_end + 7; /* après </span> */
+    }
+
+    if (len == 0) {
+        fprintf(stderr, "Erreur : aucun mot trouvé dans le premier paragraphe.\n");
+        free(lengths);
+        return -1;
+    }
+
+    *out = lengths;
+    *out_len = len;
+    return 0;
+}
+
+/* ---- Fetch URL avec curl ---- */
+
+static int fetch_url(const char *url, Buffer *buf) {
+    CURL *curl = curl_easy_init();
+    if (!curl) {
+        fprintf(stderr, "Erreur : impossible d'initialiser curl.\n");
+        return -1;
+    }
+    buf_init(buf);
+    curl_easy_setopt(curl, CURLOPT_URL, url);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write_cb);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, buf);
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 15L);
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "pedantixsolver/1.0");
+
+    CURLcode res = curl_easy_perform(curl);
+    curl_easy_cleanup(curl);
+    if (res != CURLE_OK) {
+        fprintf(stderr, "Erreur curl : %s\n", curl_easy_strerror(res));
+        buf_free(buf);
+        return -1;
+    }
+    return 0;
 }
 
 /* ---- Résultats ---- */
@@ -54,12 +179,6 @@ static void results_free(Results *r) {
 
 /* ---- Comparaison préfixe ---- */
 
-/*
- * Compare un préfixe de longueurs de mots avec le pattern d'un nœud.
- *  -1  : prefix <  pattern  (chercher à gauche)
- *   0  : prefix est un préfixe de pattern  (match)
- *  +1  : prefix >  pattern  (chercher à droite)
- */
 static int prefix_cmp(const uint8_t *prefix, int plen,
                       const uint8_t *pat, int patlen) {
     int n = plen < patlen ? plen : patlen;
@@ -71,13 +190,6 @@ static int prefix_cmp(const uint8_t *prefix, int plen,
 }
 
 /* ---- Recherche BST ---- */
-
-/*
- * Layout d'un nœud dans le .bin :
- *   [left_off : u32] [right_off : u32]
- *   [title_len : u16] [title : title_len octets]
- *   [pattern_len : u16] [pattern : pattern_len octets]
- */
 
 #define MAX_DISPLAY 10
 
@@ -104,30 +216,72 @@ static void search(uint32_t off, const uint8_t *prefix, int plen, Results *res) 
         search(right_off, prefix, plen, res);
 }
 
+/* ---- Affichage du pattern ---- */
+
+static void print_pattern(const uint8_t *prefix, int plen) {
+    printf("Pattern extrait (%d mots) :", plen);
+    for (int i = 0; i < plen; i++)
+        printf(" %d", prefix[i]);
+    printf("\n");
+}
+
+/* ---- Main ---- */
+
+static void usage(const char *prog) {
+    fprintf(stderr, "Usage :\n");
+    fprintf(stderr, "  %s -p <len1> <len2> ...   Recherche manuelle par longueurs\n", prog);
+    fprintf(stderr, "  %s -a                     Récupère automatiquement depuis pedantix\n", prog);
+    fprintf(stderr, "Exemple : %s -p 1 3 4 6 7\n", prog);
+}
+
 int main(int argc, char *argv[]) {
-    if (argc < 3 || strcmp(argv[1], "-p") != 0) {
-        fprintf(stderr, "Usage : %s -p <len1> <len2> ...\n", argv[0]);
-        fprintf(stderr, "Exemple : %s -p 1 3 4 6 7\n", argv[0]);
+    if (argc < 2) {
+        usage(argv[0]);
         return 1;
     }
 
-    int plen = argc - 2;
-    uint8_t *prefix = malloc(plen);
-    for (int i = 0; i < plen; i++) {
-        int v = atoi(argv[i + 2]);
-        if (v < 0 || v > 255) {
-            fprintf(stderr, "Erreur : les longueurs doivent être entre 0 et 255\n");
-            free(prefix);
+    uint8_t *prefix = NULL;
+    int plen = 0;
+    int need_free_prefix = 0;
+
+    if (strcmp(argv[1], "-a") == 0) {
+        /* Mode automatique : fetch depuis pedantix */
+        printf("Récupération de https://pedantix.certitudes.org/ ...\n");
+        Buffer buf;
+        if (fetch_url("https://pedantix.certitudes.org/", &buf) != 0)
+            return 1;
+
+        if (extract_lengths_from_html(buf.data, &prefix, &plen) != 0) {
+            buf_free(&buf);
             return 1;
         }
-        prefix[i] = (uint8_t)v;
+        buf_free(&buf);
+        print_pattern(prefix, plen);
+        need_free_prefix = 1;
+
+    } else if (strcmp(argv[1], "-p") == 0 && argc >= 3) {
+        /* Mode manuel */
+        plen = argc - 2;
+        prefix = malloc(plen);
+        need_free_prefix = 1;
+        for (int i = 0; i < plen; i++) {
+            int v = atoi(argv[i + 2]);
+            if (v < 0 || v > 255) {
+                fprintf(stderr, "Erreur : les longueurs doivent être entre 0 et 255\n");
+                free(prefix);
+                return 1;
+            }
+            prefix[i] = (uint8_t)v;
+        }
+    } else {
+        usage(argv[0]);
+        return 1;
     }
 
     g_data = _binary_wikipedia_bin_start;
     uint32_t node_count = read_u32(0);
     uint32_t root_off   = read_u32(4);
-
-    (void)node_count; /* utilisé uniquement pour info éventuelle */
+    (void)node_count;
 
     Results res;
     results_init(&res);
@@ -140,13 +294,13 @@ int main(int argc, char *argv[]) {
     } else if (res.count <= MAX_DISPLAY) {
         printf("%d possibilités :\n", res.count);
         for (int i = 0; i < res.count; i++)
-            printf("  %d. %s\n", i + 1, res.titles[i]);
+            printf("   - %s\n", res.titles[i]);
     } else {
         printf("Plus de %d résultats, veuillez préciser davantage de longueurs de mots.\n",
                MAX_DISPLAY);
     }
 
     results_free(&res);
-    free(prefix);
+    if (need_free_prefix) free(prefix);
     return 0;
 }

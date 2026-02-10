@@ -8,15 +8,17 @@ csv.field_size_limit(sys.maxsize)
 
 sys.setrecursionlimit(50000)
 
-_WORD_PATTERN = re.compile(r"[\w']+", re.UNICODE)
-_CLEAN_PATTERN = re.compile(r"['\-]")
+_WORD_PATTERN = re.compile(r"\w+", re.UNICODE)
+# Sépare les suffixes ordinaux (e, er, ère, re, es) des chiffres romains/arabes
+# Ex: "XXe" → "XX e", "1er" → "1 er", "XIXe" → "XIX e"
+# Exige au moins 2 chiffres romains pour éviter de splitter des mots normaux (Les, De, etc.)
+_ORDINAL_PATTERN = re.compile(r'\b([IVXLCDM]{2,}|\d+)(e|er|ère|re|es)\b', re.UNICODE)
 
 def process_paragraph(text):
+    text = _ORDINAL_PATTERN.sub(r'\1 \2', text)
     lengths = []
     for match in _WORD_PATTERN.finditer(text):
-        word = _CLEAN_PATTERN.sub('', match.group())
-        if word:
-            lengths.append(min(len(word), 255))
+        lengths.append(min(len(match.group()), 255))
     return bytes(lengths)
 
 def csv_to_bin_optimized(csv_path, bin_path):
