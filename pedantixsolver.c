@@ -56,7 +56,7 @@ static size_t curl_write_cb(char *ptr, size_t size, size_t nmemb, void *userdata
 /*
  * Le HTML contient :  <div id="article"><p><span class="w">    </span> ...
  * Chaque <span class="w"> contient N espaces = mot de longueur N.
- * On extrait uniquement le premier <p> du <div id="article">.
+ * On extrait uniquement le premier <p> non-vide du <div id="article">.
  */
 static int extract_lengths_from_html(const char *html, uint8_t **out, int *out_len) {
     /* Trouver <div id="article"> */
@@ -66,17 +66,22 @@ static int extract_lengths_from_html(const char *html, uint8_t **out, int *out_l
         return -1;
     }
 
-    /* Trouver le premier <p> après */
-    const char *p_start = strstr(article, "<p>");
-    if (!p_start) {
-        fprintf(stderr, "Erreur : pas de <p> trouvé dans l'article.\n");
-        return -1;
+    /* Trouver le premier <p> qui contient class="w" (skip les <p> vides) */
+    const char *p_start = article;
+    const char *p_end = NULL;
+    while ((p_start = strstr(p_start, "<p>")) != NULL) {
+        p_end = strstr(p_start, "</p>");
+        if (!p_end) break;
+        /* Vérifier si ce <p> contient des mots */
+        const char *has_word = strstr(p_start, "class=\"w\"");
+        if (has_word && has_word < p_end) {
+            break; /* Trouvé un <p> avec du contenu */
+        }
+        p_start = p_end + 4; /* Passer au prochain <p> */
     }
 
-    /* Trouver le </p> correspondant */
-    const char *p_end = strstr(p_start, "</p>");
-    if (!p_end) {
-        fprintf(stderr, "Erreur : pas de </p> trouvé.\n");
+    if (!p_start || !p_end) {
+        fprintf(stderr, "Erreur : pas de <p> avec du contenu trouvé dans l'article.\n");
         return -1;
     }
 
@@ -219,7 +224,7 @@ static void search(uint32_t off, const uint8_t *prefix, int plen, Results *res) 
 /* ---- Affichage du pattern ---- */
 
 static void print_pattern(const uint8_t *prefix, int plen) {
-    printf("Pattern extrait (%d mots) :", plen);
+    printf("Pattern détecté :");
     for (int i = 0; i < plen; i++)
         printf(" %d", prefix[i]);
     printf("\n");
@@ -229,9 +234,9 @@ static void print_pattern(const uint8_t *prefix, int plen) {
 
 static void usage(const char *prog) {
     fprintf(stderr, "Usage :\n");
-    fprintf(stderr, "  %s -p <len1> <len2> ...   Recherche manuelle par longueurs\n", prog);
+    fprintf(stderr, "  %s -m <len1> <len2> ...   Recherche manuelle par longueurs\n", prog);
     fprintf(stderr, "  %s -a                     Récupère automatiquement depuis pedantix\n", prog);
-    fprintf(stderr, "Exemple : %s -p 1 3 4 6 7\n", prog);
+    fprintf(stderr, "Exemple : %s -m 1 3 4 6 7\n", prog);
 }
 
 int main(int argc, char *argv[]) {
@@ -259,7 +264,7 @@ int main(int argc, char *argv[]) {
         print_pattern(prefix, plen);
         need_free_prefix = 1;
 
-    } else if (strcmp(argv[1], "-p") == 0 && argc >= 3) {
+    } else if (strcmp(argv[1], "-m") == 0 && argc >= 3) {
         /* Mode manuel */
         plen = argc - 2;
         prefix = malloc(plen);
@@ -290,7 +295,7 @@ int main(int argc, char *argv[]) {
     if (res.count == 0) {
         printf("Aucun résultat trouvé.\n");
     } else if (res.count == 1) {
-        printf("Trouvé : %s\n", res.titles[0]);
+        printf("Réponse : %s\n", res.titles[0]);
     } else if (res.count <= MAX_DISPLAY) {
         printf("%d possibilités :\n", res.count);
         for (int i = 0; i < res.count; i++)
