@@ -1,0 +1,5 @@
+beautifulsoup4==4.14.3
+libzim==3.7.0
+soupsieve==2.8.3
+tqdm==4.67.3
+typing_extensions==4.15.0

@@ -1,0 +1,26 @@
+# macOS
+.DS_Store
+
+# Python cache and artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyd
+.venv/
+
+# Packaging/build directories
+build/
+dist/
+*.egg-info/
+
+# Logs
+*.log
+
+# Keep these tracked in this repository
+*.o
+*.s
+*.bin
+*.csv
+
+# Local compiled executables
+pedantixsolver*
