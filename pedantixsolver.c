@@ -4,9 +4,9 @@
 #include <stdint.h>
 #include <curl/curl.h>
 
-/* Symboles générés par ld -r -b binary à partir de wikipedia.bin */
-extern const unsigned char _binary_wikipedia_bin_start[];
-extern const unsigned char _binary_wikipedia_bin_end[];
+/* Symboles générés par xxd -i à partir de wikipedia.bin */
+extern const unsigned char wikipedia_bin[];
+extern const unsigned int wikipedia_bin_len;
 
 static const unsigned char *g_data;
 
@@ -283,7 +283,7 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    g_data = _binary_wikipedia_bin_start;
+    g_data = wikipedia_bin;
     uint32_t node_count = read_u32(0);
     uint32_t root_off   = read_u32(4);
     (void)node_count;
