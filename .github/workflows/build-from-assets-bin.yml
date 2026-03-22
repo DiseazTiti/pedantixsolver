@@ -2,13 +2,8 @@ name: Build executables from assets .bin
 
 on:
   push:
-    branches:
-      - master
-  pull_request:
-    branches:
-      - master
-  workflow_dispatch:
-
+    tags:
+      - 'v*'
 jobs:
   build:
     name: Build on ${{ matrix.os }}
