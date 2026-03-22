@@ -74,6 +74,9 @@ jobs:
         run: |
           mkdir -p dist
           cp -f pedantixsolver "dist/pedantixsolver-${{ matrix.os }}"
+          chmod +x "dist/pedantixsolver-${{ matrix.os }}"
+          tar -C dist -czf "dist/pedantixsolver-${{ matrix.os }}.tar.gz" "pedantixsolver-${{ matrix.os }}"
+          rm -f "dist/pedantixsolver-${{ matrix.os }}"
 
       - name: Prepare artifact (Windows)
         if: runner.os == 'Windows'
@@ -81,6 +84,8 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path dist | Out-Null
           Copy-Item pedantixsolver.exe -Destination "dist/pedantixsolver-${{ matrix.os }}.exe" -Force
+          Compress-Archive -Path "dist/pedantixsolver-${{ matrix.os }}.exe" -DestinationPath "dist/pedantixsolver-${{ matrix.os }}.zip" -Force
+          Remove-Item "dist/pedantixsolver-${{ matrix.os }}.exe" -Force
 
       - name: Upload executable artifact
         uses: actions/upload-artifact@v4
@@ -104,9 +109,9 @@ jobs:
 
       - name: Verify all OS artifacts are present
         run: |
-          test -f dist/pedantixsolver-ubuntu-latest
-          test -f dist/pedantixsolver-macos-latest
-          test -f dist/pedantixsolver-windows-latest.exe
+          test -f dist/pedantixsolver-ubuntu-latest.tar.gz
+          test -f dist/pedantixsolver-macos-latest.tar.gz
+          test -f dist/pedantixsolver-windows-latest.zip
           ls -lah dist
 
       - name: Create draft GitHub release
