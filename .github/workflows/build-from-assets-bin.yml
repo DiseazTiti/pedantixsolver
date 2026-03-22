@@ -4,6 +4,10 @@ on:
   push:
     tags:
       - 'v*'
+
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Build on ${{ matrix.os }}
@@ -65,11 +69,49 @@ jobs:
         shell: msys2 {0}
         run: make
 
+      - name: Prepare artifact (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p dist
+          cp -f pedantixsolver "dist/pedantixsolver-${{ matrix.os }}"
+
+      - name: Prepare artifact (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item pedantixsolver.exe -Destination "dist/pedantixsolver-${{ matrix.os }}.exe" -Force
+
       - name: Upload executable artifact
         uses: actions/upload-artifact@v4
         with:
           name: pedantixsolver-${{ matrix.os }}
-          path: |
-            pedantixsolver
-            pedantixsolver.exe
+          path: dist/*
           if-no-files-found: error
+
+  release-draft:
+    name: Create draft release
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: pedantixsolver-*
+          merge-multiple: true
+          path: dist
+
+      - name: Verify all OS artifacts are present
+        run: |
+          test -f dist/pedantixsolver-ubuntu-latest
+          test -f dist/pedantixsolver-macos-latest
+          test -f dist/pedantixsolver-windows-latest.exe
+          ls -lah dist
+
+      - name: Create draft GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          generate_release_notes: true
+          files: dist/*
