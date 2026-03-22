@@ -69,14 +69,23 @@ jobs:
         shell: msys2 {0}
         run: make
 
-      - name: Prepare artifact (Linux/macOS)
-        if: runner.os != 'Windows'
+      - name: Prepare artifact (Linux)
+        if: runner.os == 'Linux'
         run: |
           mkdir -p dist
-          cp -f pedantixsolver "dist/pedantixsolver-${{ matrix.os }}"
-          chmod +x "dist/pedantixsolver-${{ matrix.os }}"
-          tar -C dist -czf "dist/pedantixsolver-${{ matrix.os }}.tar.gz" "pedantixsolver-${{ matrix.os }}"
-          rm -f "dist/pedantixsolver-${{ matrix.os }}"
+          cp -f pedantixsolver dist/pedantixsolver-linux
+          chmod +x dist/pedantixsolver-linux
+          zip -j dist/pedantixsolver-ubuntu-latest.zip dist/pedantixsolver-linux
+          rm -f dist/pedantixsolver-linux
+
+      - name: Prepare artifact (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          mkdir -p dist
+          cp -f pedantixsolver dist/pedantixsolver-macos-latest
+          chmod +x dist/pedantixsolver-macos-latest
+          zip -j dist/pedantixsolver-macos-latest.zip dist/pedantixsolver-macos-latest
+          rm -f dist/pedantixsolver-macos-latest
 
       - name: Prepare artifact (Windows)
         if: runner.os == 'Windows'
@@ -109,8 +118,8 @@ jobs:
 
       - name: Verify all OS artifacts are present
         run: |
-          test -f dist/pedantixsolver-ubuntu-latest.tar.gz
-          test -f dist/pedantixsolver-macos-latest.tar.gz
+          test -f dist/pedantixsolver-ubuntu-latest.zip
+          test -f dist/pedantixsolver-macos-latest.zip
           test -f dist/pedantixsolver-windows-latest.zip
           ls -lah dist
 
