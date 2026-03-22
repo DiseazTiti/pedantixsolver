@@ -1,0 +1,79 @@
+name: Build executables from assets .bin
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Checkout assets branch
+        uses: actions/checkout@v4
+        with:
+          ref: assets
+          path: assets-branch
+
+      - name: Copy .bin assets (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          cp -f assets-branch/*.bin .
+          ls -lah *.bin
+
+      - name: Copy .bin assets (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Get-ChildItem assets-branch -Filter *.bin | ForEach-Object {
+            Copy-Item $_.FullName -Destination . -Force
+          }
+          Get-ChildItem *.bin
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libcurl4-openssl-dev
+
+      - name: Install Windows build dependencies (MSYS2)
+        if: runner.os == 'Windows'
+        uses: msys2/setup-msys2@v2
+        with:
+          update: true
+          msystem: MINGW64
+          install: >-
+            make
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-curl
+
+      - name: Build on Linux/macOS
+        if: runner.os != 'Windows'
+        run: make
+
+      - name: Build on Windows
+        if: runner.os == 'Windows'
+        shell: msys2 {0}
+        run: make
+
+      - name: Upload executable artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pedantixsolver-${{ matrix.os }}
+          path: |
+            pedantixsolver
+            pedantixsolver.exe
+          if-no-files-found: error
