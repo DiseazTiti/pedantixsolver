@@ -31,7 +31,7 @@ endif
 
 ifeq ($(PLATFORM),Windows)
     CC      ?= gcc
-    SYM_PFX  = _
+    SYM_PFX  = 
     SEC_DATA = .section .rdata,"dr"
     SEC_LEN  = .section .rdata,"dr"
     EXE      = .exe
