@@ -22,6 +22,7 @@ jobs:
         with:
           ref: assets
           path: assets-branch
+          lfs: true
 
       - name: Copy .bin assets (Linux/macOS)
         if: runner.os != 'Windows'
