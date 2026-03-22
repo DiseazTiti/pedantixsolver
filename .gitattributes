@@ -1,3 +1,1 @@
 wikipedia.bin filter=lfs diff=lfs merge=lfs -text
-wikipedia.csv filter=lfs diff=lfs merge=lfs -text
-error.csv filter=lfs diff=lfs merge=lfs -text
