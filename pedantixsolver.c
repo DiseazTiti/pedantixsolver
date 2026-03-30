@@ -256,11 +256,16 @@ int main(int argc, char *argv[]) {
         if (fetch_url("https://pedantix.certitudes.org/", &buf) != 0)
             return 1;
 
-        if (extract_lengths_from_html(buf.data, &prefix, &plen) != 0) {
+        uint8_t *full_prefix = NULL;
+        int full_plen = 0;
+        if (extract_lengths_from_html(buf.data, &full_prefix, &full_plen) != 0) {
             buf_free(&buf);
             return 1;
         }
         buf_free(&buf);
+        
+        prefix = full_prefix;
+        plen = full_plen;
         print_pattern(prefix, plen);
         need_free_prefix = 1;
 
@@ -289,8 +294,37 @@ int main(int argc, char *argv[]) {
     (void)node_count;
 
     Results res;
-    results_init(&res);
-    search(root_off, prefix, plen, &res);
+    int is_auto_mode = (strcmp(argv[1], "-a") == 0);
+    
+    if (is_auto_mode) {
+        /* Mode automatique : augmenter progressivement le nombre de caractères */
+        int full_plen = plen;
+        
+        for (int current_len = 10; current_len <= full_plen; current_len += 10) {
+            results_init(&res);
+            search(root_off, prefix, current_len, &res);
+            
+            printf("Avec %d caractère(s) : %d résultat(s) trouvé(s)\n", current_len, res.count);
+            
+            /* Si aucun résultat ou un seul résultat, on s'arrête */
+            if (res.count != 1) {
+                if (current_len >= full_plen) {
+                    break;
+                }
+                /* Sinon, continuer avec plus de caractères */
+                results_free(&res);
+                continue;
+            } else {
+                /* Un seul résultat trouvé, on l'affiche et on sort */
+                break;
+            }
+        }
+    } else {
+        /* Mode manuel : recherche simple */
+        results_init(&res);
+        search(root_off, prefix, plen, &res);
+    }
+
 
     if (res.count == 0) {
         printf("Aucun résultat trouvé.\n");
@@ -308,4 +342,3 @@ int main(int argc, char *argv[]) {
     results_free(&res);
     if (need_free_prefix) free(prefix);
     return 0;
-}
