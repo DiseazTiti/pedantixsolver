@@ -299,32 +299,31 @@ int main(int argc, char *argv[]) {
     if (is_auto_mode) {
         /* Mode automatique : augmenter progressivement le nombre de caractères */
         int full_plen = plen;
+        int current_len = (full_plen < 10) ? full_plen : 10;
         
-        for (int current_len = 10; current_len <= full_plen; current_len += 10) {
+        while (current_len <= full_plen) {
             results_init(&res);
             search(root_off, prefix, current_len, &res);
-            
-            printf("Avec %d caractère(s) : %d résultat(s) trouvé(s)\n", current_len, res.count);
-            
-            /* Si aucun résultat ou un seul résultat, on s'arrête */
-            if (res.count != 1) {
-                if (current_len >= full_plen) {
-                    break;
-                }
-                /* Sinon, continuer avec plus de caractères */
-                results_free(&res);
-                continue;
-            } else {
-                /* Un seul résultat trouvé, on l'affiche et on sort */
+                        
+            /* Si un seul résultat trouvé, on s'arrête */
+            if (res.count == 1) {
                 break;
             }
+            
+            /* Si aucun résultat ou plus de 10 résultats, on s'arrête */
+            if (res.count == 0 || current_len >= full_plen) {
+                break;
+            }
+            
+            /* Sinon, continuer avec plus de caractères */
+            results_free(&res);
+            current_len += 10;
         }
     } else {
         /* Mode manuel : recherche simple */
         results_init(&res);
         search(root_off, prefix, plen, &res);
     }
-
 
     if (res.count == 0) {
         printf("Aucun résultat trouvé.\n");
@@ -342,3 +341,4 @@ int main(int argc, char *argv[]) {
     results_free(&res);
     if (need_free_prefix) free(prefix);
     return 0;
+}
