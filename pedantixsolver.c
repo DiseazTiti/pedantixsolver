@@ -230,12 +230,52 @@ static void print_pattern(const uint8_t *prefix, int plen) {
     printf("\n");
 }
 
+static void print_json_string(const char *s) {
+    putchar('"');
+    for (const unsigned char *p = (const unsigned char *)s; *p; ++p) {
+        switch (*p) {
+            case '"': printf("\\\""); break;
+            case '\\': printf("\\\\"); break;
+            case '\b': printf("\\b"); break;
+            case '\f': printf("\\f"); break;
+            case '\n': printf("\\n"); break;
+            case '\r': printf("\\r"); break;
+            case '\t': printf("\\t"); break;
+            default:
+                if (*p < 0x20) {
+                    printf("\\u%04x", *p);
+                } else {
+                    putchar(*p);
+                }
+                break;
+        }
+    }
+    putchar('"');
+}
+
+static void solve_auto(uint32_t root_off, const uint8_t *prefix, int plen, Results *res) {
+    int current_len = (plen < 10) ? plen : 10;
+
+    while (current_len <= plen) {
+        results_init(res);
+        search(root_off, prefix, current_len, res);
+
+        if (res->count == 1 || res->count == 0 || current_len >= plen) {
+            return;
+        }
+
+        results_free(res);
+        current_len += 10;
+    }
+}
+
 /* ---- Main ---- */
 
 static void usage(const char *prog) {
     fprintf(stderr, "Usage :\n");
     fprintf(stderr, "  %s -m <len1> <len2> ...   Recherche manuelle par longueurs\n", prog);
     fprintf(stderr, "  %s -a                     Récupère automatiquement depuis pedantix\n", prog);
+    fprintf(stderr, "  %s -api                   Retourne un JSON avec le résultat de -a\n", prog);
     fprintf(stderr, "Exemple : %s -m 1 3 4 6 7\n", prog);
 }
 
@@ -248,25 +288,40 @@ int main(int argc, char *argv[]) {
     uint8_t *prefix = NULL;
     int plen = 0;
     int need_free_prefix = 0;
+    int is_auto_mode = (strcmp(argv[1], "-a") == 0);
+    int is_api_mode = (strcmp(argv[1], "-api") == 0);
 
-    if (strcmp(argv[1], "-a") == 0) {
+    if (is_auto_mode || is_api_mode) {
         /* Mode automatique : fetch depuis pedantix */
-        printf("Récupération de https://pedantix.certitudes.org/ ...\n");
+        if (!is_api_mode) {
+            printf("Récupération de https://pedantix.certitudes.org/ ...\n");
+        }
         Buffer buf;
-        if (fetch_url("https://pedantix.certitudes.org/", &buf) != 0)
+        if (fetch_url("https://pedantix.certitudes.org/", &buf) != 0) {
+            if (is_api_mode) {
+                printf("{\"status\":1,\"result\":\"\"}\n");
+                return 0;
+            }
             return 1;
+        }
 
         uint8_t *full_prefix = NULL;
         int full_plen = 0;
         if (extract_lengths_from_html(buf.data, &full_prefix, &full_plen) != 0) {
             buf_free(&buf);
+            if (is_api_mode) {
+                printf("{\"status\":1,\"result\":\"\"}\n");
+                return 0;
+            }
             return 1;
         }
         buf_free(&buf);
         
         prefix = full_prefix;
         plen = full_plen;
-        print_pattern(prefix, plen);
+        if (!is_api_mode) {
+            print_pattern(prefix, plen);
+        }
         need_free_prefix = 1;
 
     } else if (strcmp(argv[1], "-m") == 0 && argc >= 3) {
@@ -294,30 +349,22 @@ int main(int argc, char *argv[]) {
     (void)node_count;
 
     Results res;
-    int is_auto_mode = (strcmp(argv[1], "-a") == 0);
     
-    if (is_auto_mode) {
+    if (is_auto_mode || is_api_mode) {
         /* Mode automatique : augmenter progressivement le nombre de caractères */
-        int full_plen = plen;
-        int current_len = (full_plen < 10) ? full_plen : 10;
-        
-        while (current_len <= full_plen) {
-            results_init(&res);
-            search(root_off, prefix, current_len, &res);
-                        
-            /* Si un seul résultat trouvé, on s'arrête */
+        solve_auto(root_off, prefix, plen, &res);
+
+        if (is_api_mode) {
             if (res.count == 1) {
-                break;
+                printf("{\"status\":0,\"result\":");
+                print_json_string(res.titles[0]);
+                printf("}\n");
+            } else {
+                printf("{\"status\":1,\"result\":\"\"}\n");
             }
-            
-            /* Si aucun résultat ou plus de 10 résultats, on s'arrête */
-            if (res.count == 0 || current_len >= full_plen) {
-                break;
-            }
-            
-            /* Sinon, continuer avec plus de caractères */
             results_free(&res);
-            current_len += 10;
+            if (need_free_prefix) free(prefix);
+            return 0;
         }
     } else {
         /* Mode manuel : recherche simple */
